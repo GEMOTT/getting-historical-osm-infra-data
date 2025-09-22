@@ -1,0 +1,193 @@
+---
+title: "Getting historical OSM infrastruture data for Barcelona and Montreal"
+format: gfm
+editor: visual
+---
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+#| paged-print: false
+# Load libraries
+library(osmdata)
+library(sf)
+library(tidyverse)
+library(osmextract)
+library(tmap)
+```
+
+```{r}
+#| eval: false
+#| message: false
+#| warning: false
+#| include: false
+#| paged-print: false
+# Define the bounding box for València city (in degrees)
+valencia_bbox <- c(-0.45, 39.35, -0.25, 39.55)  # Approximate bounding box for València city
+
+# Get the exact city boundary for València (admin_level 8 but only the city)
+valencia_city <- opq(bbox = valencia_bbox) %>%
+  add_osm_feature(key = "boundary", value = "administrative") %>%
+  add_osm_feature(key = "name", value = "València") %>%
+  add_osm_feature(key = "admin_level", value = "8") %>%
+  osmdata_sf()
+
+valencia_city_geom <- valencia_city$osm_multipolygons
+
+# Fetch all administrative boundaries (levels 8, 9, 10) in the broader area
+query <- opq(bbox = valencia_bbox) %>%
+  add_osm_feature(key = "boundary", value = "administrative") %>%
+  add_osm_feature(key = "admin_level", value = c("8", "9", "10"))
+
+valencia_boundaries <- osmdata_sf(query)
+admin_polygons <- valencia_boundaries$osm_multipolygons
+
+# Clip administrative boundaries to València city limits
+admin_polygons <- st_transform(admin_polygons, st_crs(valencia_city_geom))  # Ensure same CRS
+admin_polygons_city <- st_intersection(admin_polygons, valencia_city_geom)  # Clip to city boundary
+
+# Save each administrative boundary as separate files (GeoJSON or Shapefile)
+# Filter by each admin level (8, 9, and 10)
+
+# Save admin level 8
+admin_level_8 <- admin_polygons_city %>% filter(admin_level == "8")
+st_write(admin_level_8, "data/admin_level_8.geojson") 
+
+# Save admin level 9
+admin_level_9 <- admin_polygons_city %>% filter(admin_level == "9")
+st_write(admin_level_9, "data/admin_level_9.geojson")  
+
+# Save admin level 10
+admin_level_10 <- admin_polygons_city %>% filter(admin_level == "10")
+st_write(admin_level_10, "data/admin_level_10.geojson") 
+
+# # Switch to interactive view mode
+# tmap_mode("view")  # Enable interactive map mode
+# 
+# # Plot all admin levels (8, 9, 10) on the map
+# tm_shape(admin_polygons_city %>% filter(admin_level == "8")) +
+#   tm_borders(lwd = 2, col = "red") +
+#   tm_fill(col = "red", alpha = 0.3) +
+#   tm_shape(admin_polygons_city %>% filter(admin_level == "9")) +
+#   tm_borders(lwd = 2, col = "blue") +
+#   tm_fill(col = "blue", alpha = 0.3) +
+#   tm_shape(admin_polygons_city %>% filter(admin_level == "10")) +
+#   tm_borders(lwd = 2, col = "green") +
+#   tm_fill(col = "green", alpha = 0.3) +
+#   tm_layout(title = "Administrative Boundaries of València (Levels 8-10)")
+```
+
+```{r include=FALSE}
+#| eval: false
+#| message: false
+#| warning: false
+#| paged-print: false
+# Get the infras data 
+## Define vectortranslate options
+my_vectortranslate <- c(
+  "-select", "osm_id,highway", 
+  "-where", "highway IN ('living_street', 'pedestrian', 'cycleway', 'motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'unclassified', 'residential', 'motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link', 'service', 'track', 'bus_guideway', 'escape', 'raceway', 'busway')")
+
+## Load perimeter and get both years infras using osmextract
+valencia_perimeter <- st_read("data/valencia_perimeter.gpkg")
+      
+valencia_infras_160101 = oe_get("Spain", version = "160101", vectortranslate_options = my_vectortranslate, quiet = FALSE, boundary = valencia_perimeter, boundary_type = "clipsrc") 
+
+valencia_infras_200101 = oe_get("Spain", version = "200101", vectortranslate_options = my_vectortranslate, quiet = FALSE, boundary = valencia_perimeter, boundary_type = "clipsrc")  
+  
+valencia_infras_240101 = oe_get("Spain", version = "240101", vectortranslate_options = my_vectortranslate, quiet = FALSE, boundary = valencia_perimeter, boundary_type = "clipsrc")
+
+valencia_infras_160101 = valencia_infras_160101%>% 
+  mutate(highway_aggr = case_when(
+    highway == "cycleway" ~ "cycleway",
+    highway == "pedestrian" ~ "pedestrian",
+    highway == "living_street" ~ "living street",
+    TRUE ~ "others"  # Ensures NA values are included in "others"
+  ), highway_aggr =
+    factor(highway_aggr, levels = c("cycleway",
+    "pedestrian", "living street", "others")))
+
+valencia_infras_200101 = valencia_infras_200101%>% 
+  mutate(highway_aggr = case_when(
+    highway == "cycleway" ~ "cycleway",
+    highway == "pedestrian" ~ "pedestrian",
+    highway == "living_street" ~ "living street",
+    TRUE ~ "others"  # Ensures NA values are included in "others"
+  ), highway_aggr =
+    factor(highway_aggr, levels = c("cycleway",
+    "pedestrian", "living street", "others"))) 
+
+valencia_infras_240101 = valencia_infras_240101%>% 
+  mutate(highway_aggr = case_when(
+    highway == "cycleway" ~ "cycleway",
+    highway == "pedestrian" ~ "pedestrian",
+    highway == "living_street" ~ "living street",
+    TRUE ~ "others"), highway_aggr =
+    factor(highway_aggr, levels = c("cycleway",
+    "pedestrian", "living street", "others"))) 
+
+# Save data
+valencia_infras_160101 <- valencia_infras_160101[valencia_infras_160101$geometry %>% st_geometry_type() == "LINESTRING", ]
+st_write(valencia_infras_160101, "data/valencia_infras_160101.shp", append=FALSE)
+valencia_infras_200101 <- valencia_infras_200101[valencia_infras_200101$geometry %>% st_geometry_type() == "LINESTRING", ]
+st_write(valencia_infras_200101, "data/valencia_infras_200101.shp", append=FALSE)
+valencia_infras_240101 <- valencia_infras_240101[valencia_infras_240101$geometry %>% st_geometry_type() == "LINESTRING", ]
+st_write(valencia_infras_240101, "data/valencia_infras_240101.shp", append=FALSE)
+```
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+#| include: false
+#| paged-print: false
+## Load perimeter and get both years infras using osmextract
+valencia_perimeter <- st_read("data/valencia_perimeter.gpkg")
+## Load infras
+valencia_infras_160101 = st_read("data/valencia_infras_160101.shp") 
+valencia_infras_200101 = st_read("data/valencia_infras_200101.shp") 
+valencia_infras_240101 = st_read("data/valencia_infras_240101.shp") 
+```
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+#| paged-print: false
+# Create maps
+
+# Arrange the maps
+common_palette <- c("cycleway" = "#E41A1C",
+                    "pedestrian" = "#377EB8",
+                    "living street" = "#4DAF4A",
+                    "others" = "black")
+
+map_15 <-tm_shape(valencia_perimeter) +
+  tm_borders() +
+  tm_shape(valencia_infras_160101) + 
+  tm_lines(col = "hghwy_g", col_alpha = 0.6, lwd = 0.5, 
+           palette = common_palette) +  
+  tm_title("2015", fontface = "bold") +
+  tm_layout(frame = FALSE) 
+
+map_19 <- tm_shape(valencia_perimeter) +
+  tm_borders() +
+  tm_shape(valencia_infras_200101) + 
+  tm_lines(col = "hghwy_g", col_alpha = 0.6, lwd = 0.5, 
+           palette = common_palette) +  
+  tm_title("2019", fontface = "bold") +
+  tm_layout(frame = FALSE) 
+
+map_23 <- tm_shape(valencia_perimeter) +
+  tm_borders() +
+  tm_shape(valencia_infras_240101) + 
+  tm_lines(col = "hghwy_g", col_alpha = 0.6, lwd = 0.5, 
+           palette = common_palette) +  
+  tm_title("2023", fontface = "bold") +
+  tm_layout(frame = FALSE) 
+
+tmap_mode("plot")
+# Arrange maps
+tmap_arrange(map_15, map_19, map_23, nrow = 1)
+```
