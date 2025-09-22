@@ -1,193 +1,292 @@
 ---
-title: "Getting historical OSM infrastruture data for Barcelona and Montreal"
+title: "Getting historical OSM infrastruture data"
 format: gfm
 editor: visual
 ---
 
-```{r}
-#| echo: false
-#| message: false
-#| warning: false
-#| paged-print: false
-# Load libraries
+```{r include=FALSE}
+#remotes::install_github("ropensci/osmextract")
 library(osmdata)
+library(osmextract)
 library(sf)
 library(tidyverse)
-library(osmextract)
 library(tmap)
+library(grid)
+library(gridExtra)
+library(spdep)
 ```
 
-```{r}
-#| eval: false
-#| message: false
-#| warning: false
+```{r boundaries}
 #| include: false
-#| paged-print: false
-# Define the bounding box for València city (in degrees)
-valencia_bbox <- c(-0.45, 39.35, -0.25, 39.55)  # Approximate bounding box for València city
+# Get the boundary data for each city at the city, neighbourhood and census section levels  
 
-# Get the exact city boundary for València (admin_level 8 but only the city)
-valencia_city <- opq(bbox = valencia_bbox) %>%
-  add_osm_feature(key = "boundary", value = "administrative") %>%
-  add_osm_feature(key = "name", value = "València") %>%
-  add_osm_feature(key = "admin_level", value = "8") %>%
-  osmdata_sf()
+# Define the cities with their English names
+cities <- list(
+  "Barcelona" = "Barcelona, Spain",
+  "Montréal" = "Montréal, Canada",
+  "Milan" = "Milano, Italy",
+  "Paris" = "Paris, France"
+)
 
-valencia_city_geom <- valencia_city$osm_multipolygons
+# Create the data directory if it doesn't exist
+if (!dir.exists("data/")) {
+  dir.create("data/")
+}
 
-# Fetch all administrative boundaries (levels 8, 9, 10) in the broader area
-query <- opq(bbox = valencia_bbox) %>%
-  add_osm_feature(key = "boundary", value = "administrative") %>%
-  add_osm_feature(key = "admin_level", value = c("8", "9", "10"))
+for (english_name in names(cities)) {
+  city <- cities[[english_name]]
+  try({
+    # Get the bounding box
+    bbox <- getbb(city, format_out = "polygon")
+    if (is.null(bbox)) {
+      warning(paste("Bounding box for", city, "not found"))
+      next
+    }
+    
+    # Query for the city's boundary with admin_level 8
+    city_boundary <- opq(bbox = bbox) |>
+      add_osm_feature(key = "boundary", value = "administrative") |>
+      add_osm_feature(key = "name", value = gsub(",.*", "", city), value_exact = FALSE) |>
+      add_osm_feature(key = "admin_level", value = "8") |>
+      osmdata_sf()
+    
+    if (is.null(city_boundary$osm_multipolygons)) {
+      warning(paste("Boundary for", city, "not found. Query returned no results."))
+      next
+    }
+    
+    city_perimeter <- city_boundary$osm_multipolygons
+    
+    # Ensure only one observation
+    city_perimeter <- city_perimeter[1, ]
+    
+    # Convert to MULTIPOLYGON if necessary
+    city_perimeter <- st_cast(city_perimeter, "MULTIPOLYGON")
+    
+    # Check and fix invalid geometries
+    if (!all(st_is_valid(city_perimeter))) {
+      city_perimeter <- st_make_valid(city_perimeter)
+    }
+    
+    # Create city-specific directory if it doesn't exist
+    city_dir <- paste0("data/", tolower(english_name))
+    if (!dir.exists(city_dir)) {
+      dir.create(city_dir)
+    }
+    
+    # Write to GeoPackage (overwrite if exists) using the English name
+    st_write(city_perimeter, paste0(city_dir, "/", tolower(english_name), "_perimeter.gpkg"), layer = english_name, driver = "GPKG", append = FALSE)
+    
+    message(paste("Successfully wrote perimeter for", english_name))
+  }, silent = FALSE)
+}
 
-valencia_boundaries <- osmdata_sf(query)
-admin_polygons <- valencia_boundaries$osm_multipolygons
-
-# Clip administrative boundaries to València city limits
-admin_polygons <- st_transform(admin_polygons, st_crs(valencia_city_geom))  # Ensure same CRS
-admin_polygons_city <- st_intersection(admin_polygons, valencia_city_geom)  # Clip to city boundary
-
-# Save each administrative boundary as separate files (GeoJSON or Shapefile)
-# Filter by each admin level (8, 9, and 10)
-
-# Save admin level 8
-admin_level_8 <- admin_polygons_city %>% filter(admin_level == "8")
-st_write(admin_level_8, "data/admin_level_8.geojson") 
-
-# Save admin level 9
-admin_level_9 <- admin_polygons_city %>% filter(admin_level == "9")
-st_write(admin_level_9, "data/admin_level_9.geojson")  
-
-# Save admin level 10
-admin_level_10 <- admin_polygons_city %>% filter(admin_level == "10")
-st_write(admin_level_10, "data/admin_level_10.geojson") 
-
-# # Switch to interactive view mode
-# tmap_mode("view")  # Enable interactive map mode
+# Test boundaries
+# # Function to read and plot a city's boundary using tmap
+# plot_city_boundary_tmap <- function(city_name) {
+#   file_path <- paste0("data/", tolower(city_name), "/", tolower(city_name), "_perimeter.gpkg")
+#   
+#   if (!file.exists(file_path)) {
+#     warning(paste("File not found for", city_name))
+#     return(NULL)
+#   }
+#   
+#   city_boundary <- st_read(file_path)
+#   
+#   # Plot with tmap
+#   tm_shape(city_boundary) +
+#     tm_borders(col = "blue") +
+#     tm_fill(col = "lightblue", alpha = 0.5) +
+#     tm_layout(main.title = paste("Boundary of", city_name))
+# }
 # 
-# # Plot all admin levels (8, 9, 10) on the map
-# tm_shape(admin_polygons_city %>% filter(admin_level == "8")) +
-#   tm_borders(lwd = 2, col = "red") +
-#   tm_fill(col = "red", alpha = 0.3) +
-#   tm_shape(admin_polygons_city %>% filter(admin_level == "9")) +
-#   tm_borders(lwd = 2, col = "blue") +
-#   tm_fill(col = "blue", alpha = 0.3) +
-#   tm_shape(admin_polygons_city %>% filter(admin_level == "10")) +
-#   tm_borders(lwd = 2, col = "green") +
-#   tm_fill(col = "green", alpha = 0.3) +
-#   tm_layout(title = "Administrative Boundaries of València (Levels 8-10)")
+# # Test with a single city (replace "Barcelona" with any other city)
+# plot_city_boundary_tmap("Barcelona")
 ```
 
-```{r include=FALSE}
-#| eval: false
-#| message: false
-#| warning: false
-#| paged-print: false
-# Get the infras data 
-## Define vectortranslate options
+```{r infras}
+#| include: false
+# Get the OSM infrastructture data
+# Define vectortranslate options
 my_vectortranslate <- c(
   "-select", "osm_id,highway", 
-  "-where", "highway IN ('living_street', 'pedestrian', 'cycleway', 'motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'unclassified', 'residential', 'motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link', 'service', 'track', 'bus_guideway', 'escape', 'raceway', 'busway')")
+  "-where", "highway IN ('living_street', 'pedestrian', 'cycleway', 'motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'unclassified', 'residential', 'motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link', 'service', 'track', 'bus_guideway', 'escape', 'raceway', 'busway')"
+)
 
-## Load perimeter and get both years infras using osmextract
-valencia_perimeter <- st_read("data/valencia_perimeter.gpkg")
-      
-valencia_infras_160101 = oe_get("Spain", version = "160101", vectortranslate_options = my_vectortranslate, quiet = FALSE, boundary = valencia_perimeter, boundary_type = "clipsrc") 
+# Define a list of cities with their corresponding region and subregion
+cities <- list(
+  "Barcelona" = c("Barcelona", "Cataluña", "Spain"),
+  "Montréal"  = c("Montréal", "Québec",   "Canada"),
+  "Milan"     = c("Milan",    "Nord-Ovest","Milan"),
+  "Paris"     = c("Paris",    "Ile-de-France", "Paris")
+)
 
-valencia_infras_200101 = oe_get("Spain", version = "200101", vectortranslate_options = my_vectortranslate, quiet = FALSE, boundary = valencia_perimeter, boundary_type = "clipsrc")  
+for (english_name in names(cities)) {
+  city_info <- cities[[english_name]]
+  city      <- city_info[1]
+  region    <- city_info[2]
+  subregion <- city_info[3]
   
-valencia_infras_240101 = oe_get("Spain", version = "240101", vectortranslate_options = my_vectortranslate, quiet = FALSE, boundary = valencia_perimeter, boundary_type = "clipsrc")
+  try({
+    # Define file path for the perimeter
+    perimeter_path <- paste0("data/", tolower(english_name), "/", tolower(english_name), "_perimeter.gpkg")
+    
+    # Read the perimeter from GeoPackage
+    if (file.exists(perimeter_path)) {
+      city_perimeter <- st_read(perimeter_path, layer = tolower(english_name))
+      # Ensure CRS is WGS84
+      if (st_crs(city_perimeter) != 4326) {
+        message(paste("Transforming CRS for", english_name, "to WGS 84"))
+        city_perimeter <- st_transform(city_perimeter, 4326)
+      }
+    } else {
+      warning(paste("Perimeter file for", english_name, "not found"))
+      next
+    }
+    
+    # Create city-specific directory if it doesn't exist
+    city_dir <- paste0("data/", tolower(english_name))
+    if (!dir.exists(city_dir)) dir.create(city_dir, recursive = TRUE)
 
-valencia_infras_160101 = valencia_infras_160101%>% 
-  mutate(highway_aggr = case_when(
-    highway == "cycleway" ~ "cycleway",
-    highway == "pedestrian" ~ "pedestrian",
-    highway == "living_street" ~ "living street",
-    TRUE ~ "others"  # Ensures NA values are included in "others"
-  ), highway_aggr =
-    factor(highway_aggr, levels = c("cycleway",
-    "pedestrian", "living street", "others")))
+    # Helper: fetch + crop; SKIPS if output already exists
+    fetch_and_crop_data <- function(area, version, perimeter, output_file) {
+      if (file.exists(output_file)) {
+        message("↪ Skipping (exists): ", basename(output_file))
+        return(invisible(NULL))
+      }
 
-valencia_infras_200101 = valencia_infras_200101%>% 
-  mutate(highway_aggr = case_when(
-    highway == "cycleway" ~ "cycleway",
-    highway == "pedestrian" ~ "pedestrian",
-    highway == "living_street" ~ "living street",
-    TRUE ~ "others"  # Ensures NA values are included in "others"
-  ), highway_aggr =
-    factor(highway_aggr, levels = c("cycleway",
-    "pedestrian", "living street", "others"))) 
+      # SPECIAL CASE: Barcelona 2017 -> use 'spain' and avoid vectortranslate filter
+      force_spain_2017 <- (english_name == "Barcelona" && version == "170101")
 
-valencia_infras_240101 = valencia_infras_240101%>% 
-  mutate(highway_aggr = case_when(
-    highway == "cycleway" ~ "cycleway",
-    highway == "pedestrian" ~ "pedestrian",
-    highway == "living_street" ~ "living street",
-    TRUE ~ "others"), highway_aggr =
-    factor(highway_aggr, levels = c("cycleway",
-    "pedestrian", "living street", "others"))) 
+      lines_data <- tryCatch({
+        if (force_spain_2017) {
+          # Fast pre-clip by bbox; read lines with highway tag present
+          oe_get("spain",
+                 version = version,
+                 boundary = st_bbox(perimeter), boundary_type = "clipsrc",
+                 layer = "lines", extra_tags = "highway",
+                 quiet = FALSE)
+        } else {
+          # Your original call (keep vectortranslate filter)
+          oe_get(area,
+                 version = version,
+                 vectortranslate_options = my_vectortranslate,
+                 quiet = FALSE)
+        }
+      }, error = function(e) {
+        message(paste("Error fetching", version, "lines for", english_name, ":", e$message))
+        return(NULL)
+      })
+      
+      if (!is.null(lines_data) && nrow(lines_data) > 0) {
+        # Keep only (multi)lines and clip to polygon
+        lines_data <- lines_data[
+          sf::st_geometry_type(lines_data$geometry) %in% c("LINESTRING","MULTILINESTRING"), ]
+        if (nrow(lines_data) == 0) {
+          message(paste("No LINESTRINGs for", english_name, "(", version, ")"))
+          return(invisible(NULL))
+        }
 
-# Save data
-valencia_infras_160101 <- valencia_infras_160101[valencia_infras_160101$geometry %>% st_geometry_type() == "LINESTRING", ]
-st_write(valencia_infras_160101, "data/valencia_infras_160101.shp", append=FALSE)
-valencia_infras_200101 <- valencia_infras_200101[valencia_infras_200101$geometry %>% st_geometry_type() == "LINESTRING", ]
-st_write(valencia_infras_200101, "data/valencia_infras_200101.shp", append=FALSE)
-valencia_infras_240101 <- valencia_infras_240101[valencia_infras_240101$geometry %>% st_geometry_type() == "LINESTRING", ]
-st_write(valencia_infras_240101, "data/valencia_infras_240101.shp", append=FALSE)
+        # Final clip to the city polygon
+        lines_data <- sf::st_intersection(lines_data, perimeter)
+
+        if (nrow(lines_data) > 0) {
+          sf::st_write(lines_data, output_file,
+                       layer = gsub("\\.gpkg$", "", basename(output_file)),
+                       driver = "GPKG", append = FALSE)
+          message(paste("✓ Saved", basename(output_file), "(", nrow(lines_data), "features )"))
+        } else {
+          message(paste("No lines remaining after clipping for", english_name, "(", version, ")"))
+        }
+      } else {
+        message(paste("No data found for", english_name, "(", version, ")"))
+      }
+    }
+
+    # Fetch and crop 170101 (2017) — Barcelona uses 'spain' internally
+    fetch_and_crop_data(region,   "170101", city_perimeter,
+                        paste0(city_dir, "/", tolower(english_name), "_170101_lines.gpkg"))
+
+    # Fetch and crop 240101 (2024)
+    fetch_and_crop_data(subregion,"240101", city_perimeter,
+                        paste0(city_dir, "/", tolower(english_name), "_240101_lines.gpkg"))
+
+    message(paste("Done:", english_name))
+  }, silent = FALSE)
+}
 ```
 
 ```{r}
 #| echo: false
 #| message: false
 #| warning: false
-#| include: false
 #| paged-print: false
-## Load perimeter and get both years infras using osmextract
-valencia_perimeter <- st_read("data/valencia_perimeter.gpkg")
-## Load infras
-valencia_infras_160101 = st_read("data/valencia_infras_160101.shp") 
-valencia_infras_200101 = st_read("data/valencia_infras_200101.shp") 
-valencia_infras_240101 = st_read("data/valencia_infras_240101.shp") 
-```
+# --- cities to plot (match your folder names under data/) ---
+city_tags <- c("barcelona", "montréal", "milan", "paris")  # add/remove as needed
+versions  <- c("170101","240101")  # 2017 & 2024
 
-```{r}
-#| echo: false
-#| message: false
-#| warning: false
-#| paged-print: false
-# Create maps
+# --- palette & helpers ---
+pal <- c("cycleway"="#E41A1C","pedestrian"="#377EB8","living street"="#4DAF4A","others"="grey")
 
-# Arrange the maps
-common_palette <- c("cycleway" = "#E41A1C",
-                    "pedestrian" = "#377EB8",
-                    "living street" = "#4DAF4A",
-                    "others" = "black")
+read_perimeter <- function(tag){
+  perim_path <- file.path("data", tag, paste0(tag, "_perimeter.gpkg"))
+  if (!file.exists(perim_path)) return(NULL)
+  # read (single-layer gpkg) and ensure WGS84
+  st_read(perim_path, quiet = TRUE) |> st_transform(4326)
+}
 
-map_15 <-tm_shape(valencia_perimeter) +
-  tm_borders() +
-  tm_shape(valencia_infras_160101) + 
-  tm_lines(col = "hghwy_g", col_alpha = 0.6, lwd = 0.5, 
-           palette = common_palette) +  
-  tm_title("2015", fontface = "bold") +
-  tm_layout(frame = FALSE) 
+read_infra <- function(tag, ver){
+  gpkg <- file.path("data", tag, paste0(tag, "_", ver, "_lines.gpkg"))
+  lyr  <- paste0(tag, "_", ver, "_lines")
+  if (!file.exists(gpkg)) return(NULL)
+  x <- tryCatch(st_read(gpkg, layer = lyr, quiet = TRUE), error = function(e) NULL)
+  x
+}
 
-map_19 <- tm_shape(valencia_perimeter) +
-  tm_borders() +
-  tm_shape(valencia_infras_200101) + 
-  tm_lines(col = "hghwy_g", col_alpha = 0.6, lwd = 0.5, 
-           palette = common_palette) +  
-  tm_title("2019", fontface = "bold") +
-  tm_layout(frame = FALSE) 
+mk_aggr <- function(x, perimeter){
+  if (is.null(x) || nrow(x) == 0) return(NULL)
+  x <- st_transform(x, st_crs(perimeter))
+  if (!"highway_aggr" %in% names(x)) {
+    x <- x |>
+      mutate(highway_aggr = dplyr::case_when(
+        highway == "cycleway"      ~ "cycleway",
+        highway == "pedestrian"    ~ "pedestrian",
+        highway == "living_street" ~ "living street",
+        TRUE ~ "others"
+      ))
+  }
+  x
+}
 
-map_23 <- tm_shape(valencia_perimeter) +
-  tm_borders() +
-  tm_shape(valencia_infras_240101) + 
-  tm_lines(col = "hghwy_g", col_alpha = 0.6, lwd = 0.5, 
-           palette = common_palette) +  
-  tm_title("2023", fontface = "bold") +
-  tm_layout(frame = FALSE) 
+mk_map <- function(perimeter, x, title){
+  if (is.null(x) || nrow(x) == 0) {
+    return(tm_shape(perimeter) + tm_borders() + tm_title(paste0(title, " (no data)")))
+  }
+  tm_shape(perimeter) + tm_borders() +
+    tm_shape(x) +
+    tm_lines(col = "highway_aggr", lwd = 0.5, col_alpha = 0.6,
+             col.scale = tm_scale(values = pal)) +
+    tm_title(title)
+}
 
+make_city_panel <- function(city_tag){
+  perim <- read_perimeter(city_tag)
+  if (is.null(perim)) return(NULL)
+
+  x17 <- mk_aggr(read_infra(city_tag, "170101"), perim)
+  x24 <- mk_aggr(read_infra(city_tag, "240101"), perim)
+
+  m17 <- mk_map(perim, x17, "2017")
+  m24 <- mk_map(perim, x24, "2024")
+  tmap_arrange(m17, m24, nrow = 1)
+}
+
+# --- OPTION A: display all city panels in the notebook ---
 tmap_mode("plot")
-# Arrange maps
-tmap_arrange(map_15, map_19, map_23, nrow = 1)
+panels <- lapply(city_tags, make_city_panel)
+# print each panel (skip NULLs)
+invisible(lapply(panels[!sapply(panels, is.null)], print))
 ```
+
+
+
