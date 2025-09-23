@@ -276,8 +276,8 @@ make_city_panel <- function(city_tag){
   x17 <- mk_aggr(read_infra(city_tag, "170101"), perim)
   x24 <- mk_aggr(read_infra(city_tag, "240101"), perim)
 
-  m17 <- mk_map(perim, x17, "2017")
-  m24 <- mk_map(perim, x24, "2024")
+  m17 <- mk_map(perim, x17, "2016")
+  m24 <- mk_map(perim, x24, "2023")
   tmap_arrange(m17, m24, nrow = 1)
 }
 
