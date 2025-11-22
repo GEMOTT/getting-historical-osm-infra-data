@@ -1,43 +1,38 @@
-## R/02_get_infrastructure.R
-## Download and clip historical OSM lines for ONE city (uses 00_setup.R)
+## R/02_get_osm_infrastructure.R
+## Download OSM travel network (all modes) with all active travel tags
+## using osmactive::get_travel_network(), and clip to the city perimeter.
+##
+## Output:
+##   data/<city_tag>/<city_tag>_<version>_lines.gpkg
 
-get_osm_infrastructure <- function() {
+get_osm_infrastructure <- function(version = snapshot_version) {
   
-  if (!exists("city_tag") || !exists("city_name")) {
+  if (!exists("city_tag") || !exists("city_name") || !exists("infra_region")) {
     stop("Please source('R/00_setup.R') before calling get_osm_infrastructure().")
   }
   
-  # 1) vectortranslate (same as before)
-  my_vectortranslate <- c(
-    "-select", "osm_id,highway", 
-    "-where",
-    "highway IN (
-      'living_street','pedestrian','cycleway',
-      'motorway','trunk','primary','secondary','tertiary',
-      'unclassified','residential',
-      'motorway_link','trunk_link','primary_link',
-      'secondary_link','tertiary_link',
-      'service','track','bus_guideway','escape','raceway','busway'
-    )"
-  )
+  if (!requireNamespace("osmactive", quietly = TRUE)) {
+    stop(
+      "The 'osmactive' package is not installed.\n",
+      "Install it with: remotes::install_github('nptscot/osmactive')"
+    )
+  }
   
-  # ------------------------------------------------------------------
-  # 2) FIND THE BOUNDARY FILE THAT ALREADY EXISTS
-  # ------------------------------------------------------------------
   city_dir <- file.path("data", city_tag)
   if (!dir.exists(city_dir)) {
     stop("City directory does not exist: ", city_dir)
   }
   
-  # Candidates: any gpkg in data/<city_tag>
-  gpkg_files <- list.files(city_dir, pattern = "\\.gpkg$", full.names = TRUE)
+  # -------------------------------------------------------------------
+  # Find perimeter file (same logic as before)
+  # -------------------------------------------------------------------
   
+  gpkg_files <- list.files(city_dir, pattern = "\\.gpkg$", full.names = TRUE)
   if (length(gpkg_files) == 0) {
     stop("No .gpkg files found in ", city_dir,
          ". Run your boundary script first.")
   }
   
-  # Preferred name if it exists
   preferred1 <- file.path(city_dir, paste0(city_tag, "_perimeter.gpkg"))
   preferred2 <- file.path(city_dir, "boundary_city.gpkg")
   
@@ -46,7 +41,6 @@ get_osm_infrastructure <- function() {
   } else if (file.exists(preferred2)) {
     perim_path <- preferred2
   } else if (length(gpkg_files) == 1) {
-    # only one candidate: use it
     perim_path <- gpkg_files[1]
   } else {
     stop(
@@ -61,82 +55,84 @@ get_osm_infrastructure <- function() {
   
   message("✓ Using perimeter file: ", perim_path)
   
-  # Figure out layer name automatically
   layers_info <- sf::st_layers(perim_path)
-  layer_name  <- layers_info$name[1]  # take first layer
+  layer_name  <- layers_info$name[1]
   
   message("  Using layer: ", layer_name)
   
   perim <- sf::st_read(perim_path, layer = layer_name, quiet = TRUE)
   
+  # Transform perimeter to WGS84 for oe_get / get_travel_network
+  if (is.na(sf::st_crs(perim))) {
+    stop("Perimeter has no CRS. Please define a CRS (likely EPSG:4326) for: ", perim_path)
+  }
   if (sf::st_crs(perim)$epsg != 4326) {
     message("  Transforming perimeter CRS to EPSG:4326")
     perim <- sf::st_transform(perim, 4326)
   }
   
-  # ------------------------------------------------------------------
-  # From here down, keep your existing fetch_and_crop / fetch_and_clip
-  # logic (only changing 'perimeter' -> 'perim' if needed).
-  # ------------------------------------------------------------------
+  # -------------------------------------------------------------------
+  # Download travel network with osmactive (internally uses oe_get + et_active)
+  # -------------------------------------------------------------------
   
-  fetch_and_clip <- function(place_name, version) {
-    out_file <- file.path(city_dir,
-                          paste0(city_tag, "_", version, "_lines.gpkg"))
-    
-    if (file.exists(out_file)) {
-      message("↪ Skipping (exists): ", basename(out_file))
-      return(invisible(NULL))
-    }
-    
-    message("→ oe_get(place = '", place_name,
-            "', version = '", version, "')")
-    
-    dat <- tryCatch(
-      {
-        osmextract::oe_get(
-          place                   = place_name,
-          version                 = version,
-          vectortranslate_options = my_vectortranslate,
-          quiet                   = FALSE
-        )
-      },
-      error = function(e) {
-        message("  ✖ oe_get error: ", e$message)
-        return(NULL)
-      }
-    )
-    
-    if (is.null(dat) || nrow(dat) == 0) {
-      message("  ✖ No rows returned for ", place_name, " / ", version)
-      return(invisible(NULL))
-    }
-    
-    dat <- dat[
-      sf::st_geometry_type(dat$geometry) %in%
-        c("LINESTRING", "MULTILINESTRING"), ]
-    
-    if (nrow(dat) == 0) {
-      message("  ✖ No LINESTRING/MULTILINESTRING after filter")
-      return(invisible(NULL))
-    }
-    
-    dat <- sf::st_transform(dat, sf::st_crs(perim))
-    dat <- suppressMessages(sf::st_intersection(dat, perim))
-    
-    if (nrow(dat) == 0) {
-      message("  ✖ No features after clipping to perimeter")
-      return(invisible(NULL))
-    }
-    
-    sf::st_write(dat, out_file, driver = "GPKG", append = FALSE)
-    message("  ✓ Saved ", basename(out_file), " (", nrow(dat), " features)")
+  out_file <- file.path(
+    city_dir,
+    paste0(city_tag, "_", version, "_lines.gpkg")
+  )
+  
+  if (file.exists(out_file)) {
+    message("↪ Skipping download (exists): ", basename(out_file))
+    message("  If you want to refresh, delete the file and rerun get_osm_infrastructure().")
+    return(invisible(out_file))
   }
   
-  # Use regions from setup
-  fetch_and_clip(infra_region_2017, "170101")
-  fetch_and_clip(infra_region_2024, "240101")
+  message("→ Downloading travel network with osmactive::get_travel_network()")
+  message("  place   = '", infra_region, "'")
+  message("  version = '", version, "'")
   
-  message("✔ Infrastructure extraction completed for ", city_name)
+  osm <- tryCatch(
+    {
+      osmactive::get_travel_network(
+        place         = infra_region,
+        boundary      = perim,
+        boundary_type = "clipsrc",
+        version       = version,    # passed through to oe_get
+        quiet         = FALSE
+      )
+    },
+    error = function(e) {
+      message("  ✖ get_travel_network error: ", e$message)
+      return(NULL)
+    }
+  )
+  
+  if (is.null(osm) || nrow(osm) == 0) {
+    stop("No features returned by get_travel_network for ",
+         infra_region, " / ", version)
+  }
+  
+  # Keep only line geometries, just in case
+  osm <- osm[
+    sf::st_geometry_type(osm$geometry) %in%
+      c("LINESTRING", "MULTILINESTRING"),
+  ]
+  
+  if (nrow(osm) == 0) {
+    stop("No LINESTRING / MULTILINESTRING features in travel network for ",
+         infra_region, " / ", version)
+  }
+  
+  # Just in case the CRS is not WGS84
+  if (sf::st_crs(osm)$epsg != 4326) {
+    message("  Transforming OSM network CRS to EPSG:4326")
+    osm <- sf::st_transform(osm, 4326)
+  }
+  
+  sf::st_write(osm, out_file, driver = "GPKG", append = FALSE, quiet = TRUE)
+  message("  ✓ Saved ", basename(out_file), " (", nrow(osm), " features)")
+  
+  message("✔ Infrastructure extraction completed for ", city_name,
+          " (version: ", version, ")")
+  
+  invisible(out_file)
 }
-
-

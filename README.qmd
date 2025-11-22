@@ -1,11 +1,12 @@
 ## What this repository does
 
 We use historical OpenStreetMap (OSM) data to extract and classify street networks for a city.  
-Using **Montréal** as an example, the workflow has two main parts:
+
+The workflow has two main parts:
 
 1. **Full street network classified by `highway` type**
 
-   We download the **full street network** for the city and classify each link into four simple groups using only the OSM `highway` tag:
+   We download the full street network for the city and classify each link into four simple groups using only the OSM `highway` tag:
 
    - **cycling**: `highway = cycleway`
    - **pedestrian**: `highway = pedestrian`
@@ -18,7 +19,7 @@ Using **Montréal** as an example, the workflow has two main parts:
 
 2. **Cycling network by infrastructure type**
 
-   From the OSM data we then build a **broader cycling network**, where links are classified by type of cycling infrastructure  
+   From the OSM data we then build a broader cycling network, where links are classified by type of cycling infrastructure  
    (for example protected tracks, painted lanes, mixed traffic).
 
    We implement this in two alternative ways:
@@ -26,26 +27,44 @@ Using **Montréal** as an example, the workflow has two main parts:
    - **From scratch with `osmextract`**: custom filters based on `highway`, `cycleway*`, `bicycle*`, `segregated`, etc.  
    - **Using `osmactive`**: a higher level interface that applies a built-in cycling filter.
 
-The scripts are written so that you can run this workflow for **one city at a time** by adjusting the city settings in `R/00_setup.R`.
+The scripts are written so that you can run this workflow for **one city at a time** and for **one historical OSM snapshot at a time** by adjusting the settings in `R/00_setup.R` and the `version` argument in `R/02_get_infrastructure.R`.
+
+In this example, we get 2016 osm data for the city of **Montréal**, Canada.
 
 ::: {.callout-tip collapse=true}
-## Changing city
+## Changing city and year
 
-To switch city:
+#### 1. Change city (`R/00_setup.R`)
 
-1. Set the city in `R/00_setup.R`.  
-   For example, for **Paris**:
+Edit these lines:
 
- ```
- city_name           <- "Paris"
- city_tag            <- "paris"
- city_boundary_place <- "Paris, France"
+```
+city_name           <- "Montréal"
+city_tag            <- "montréal"
+city_boundary_place <- "Montréal, Canada"
 
- infra_region_2017 <- "Ile-de-France"  # Geofabrik region for 170101
- infra_region_2024 <- "Ile-de-France"  # This region may change by year 
+# Region used by osmextract::oe_get() (must fully contain the city)
+infra_region <- "Québec"
+```
+To switch city, replace these four values with the new city information.
+Example for Paris:
+
+```
+city_name           <- "Paris"
+city_tag            <- "paris"
+city_boundary_place <- "Paris, France"
+infra_region        <- "Ile-de-France"
 ```
 
-2. Then, in a fresh R session, run:
+#### 2. Choose the “year” (OSM snapshot)
+
+We work with historical OSM snapshots identified by version codes:
+
+"170101" → approx 2016–2017
+
+"240101" → approx 2023–2024
+
+Choose one snapshot to download:
 
 ```
 source("R/00_setup.R")
@@ -53,8 +72,43 @@ source("R/01_get_boundary.R")
 source("R/02_get_infrastructure.R")
 
 build_city_boundary()
-get_osm_infrastructure()
+
+# Download ONE snapshot:
+get_osm_infrastructure(version = "170101")   # older
+# get_osm_infrastructure(version = "240101") # newer
 ```
+This saves a file like:
+
+```
+data/<city_tag>/<city_tag>_<version>_lines.gpkg
+
+```
+
+#### 3. Plot the network for that snapshot
+
+```
+source("R/03_classify_network.R")
+source("R/04_city_maps.R")
+
+plot_city_map_tm(
+  version    = "170101",      # the snapshot you downloaded
+  city_name  = city_name,
+  year_label = "2016"         # only affects the title
+)
+```
+
+Use "240101" with a different year_label if you downloaded the newer snapshot.
+
+#### Summary
+
+- Change city: update city_name, city_tag, city_boundary_place, and infra_region in R/00_setup.R.
+
+- Change year: choose which snapshot to download (version = "170101" or "240101").
+
+- Plot: call plot_city_map_tm() with the same version and your preferred label.
+
+The rest of the workflow adapts automatically.
+
 :::
 
 ```{r}
@@ -63,7 +117,8 @@ source("R/00_setup.R")
 source("R/01_get_boundary.R")
 source("R/02_get_infrastructure.R")
 source("R/03_classify_network.R")
-source("R/04_city_map.R")
+source("R/04_cycling_network.R")
+source("R/05_city_map.R")
 ```
 
 ```{r}
@@ -71,12 +126,8 @@ source("R/04_city_map.R")
 #| include: false
 build_city_boundary()       # from 01
 get_osm_infrastructure()    # from 02
+build_cycling_network("osmextract")
+build_cycling_network("osmactive")
+plot_city_map_tm()
 ```
 
-```{r}
-#| label: map-panels
-#| echo: false
-#| message: false
-#| warning: false
-plot_city_panel()
-```

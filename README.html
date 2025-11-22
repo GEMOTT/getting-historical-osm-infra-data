@@ -53,7 +53,7 @@ ul.task-list li input[type="checkbox"] {
 Using <strong>Montréal</strong> as an example, the workflow has two main parts:</p>
 <ol type="1">
 <li><p><strong>Full street network classified by <code>highway</code> type</strong></p>
-<p>We download the <strong>full street network</strong> for the city and classify each link into four simple groups using only the OSM <code>highway</code> tag:</p>
+<p>We download the full street network for the city and classify each link into four simple groups using only the OSM <code>highway</code> tag:</p>
 <ul>
 <li><strong>cycling</strong>: <code>highway = cycleway</code></li>
 <li><strong>pedestrian</strong>: <code>highway = pedestrian</code></li>
@@ -64,7 +64,7 @@ Using <strong>Montréal</strong> as an example, the workflow has two main parts:
 At this stage we do not include on-road cycling lanes or tracks<br>
 (for example <code>cycleway = lane</code> or <code>cycleway = track</code> on other road types).</p></li>
 <li><p><strong>Cycling network by infrastructure type</strong></p>
-<p>From the OSM data we then build a <strong>broader cycling network</strong>, where links are classified by type of cycling infrastructure<br>
+<p>From the OSM data we then build a broader cycling network, where links are classified by type of cycling infrastructure<br>
 (for example protected tracks, painted lanes, mixed traffic).</p>
 <p>We implement this in two alternative ways:</p>
 <ul>
@@ -73,39 +73,74 @@ At this stage we do not include on-road cycling lanes or tracks<br>
 <li><strong>Using <code>osmactive</code></strong>: a higher level interface that applies a built-in cycling filter.</li>
 </ul></li>
 </ol>
-<p>The scripts are written so that you can run this workflow for <strong>one city at a time</strong> by adjusting the city settings in <code>R/00_setup.R</code>.</p>
+<p>The scripts are written so that you can run this workflow for <strong>one city at a time</strong> and for <strong>one historical OSM snapshot at a time</strong> by adjusting the settings in <code>R/00_setup.R</code> and the <code>version</code> argument in <code>R/02_get_infrastructure.R</code>.</p>
 <div class="callout callout-style-default callout-tip callout-titled">
 <div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-1-contents" aria-controls="callout-1" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
 <div class="callout-title-container flex-fill">
-Changing city
+Changing city and year
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
 <div id="callout-1" class="callout-1-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<p>To switch city:</p>
-<ol type="1">
-<li>Set the city in <code>R/00_setup.R</code>.<br>
-For example, for <strong>Paris</strong>:</li>
-</ol>
+<section id="change-city-r00_setup.r" class="level4">
+<h4 class="anchored" data-anchor-id="change-city-r00_setup.r">1. Change city (<code>R/00_setup.R</code>)</h4>
+<p>Edit these lines:</p>
+<pre><code>city_name           &lt;- "Montréal"
+city_tag            &lt;- "montréal"
+city_boundary_place &lt;- "Montréal, Canada"
+
+# Region used by osmextract::oe_get() (must fully contain the city)
+infra_region &lt;- "Québec"</code></pre>
+<p>To switch city, replace these four values with the new city information. Example for Paris:</p>
 <pre><code>city_name           &lt;- "Paris"
 city_tag            &lt;- "paris"
 city_boundary_place &lt;- "Paris, France"
-
-infra_region_2017 &lt;- "Ile-de-France"  # Geofabrik region for 170101
-infra_region_2024 &lt;- "Ile-de-France"  # This region may change by year </code></pre>
-<ol start="2" type="1">
-<li>Then, in a fresh R session, run:</li>
-</ol>
+infra_region        &lt;- "Ile-de-France"</code></pre>
+</section>
+<section id="choose-the-year-osm-snapshot" class="level4">
+<h4 class="anchored" data-anchor-id="choose-the-year-osm-snapshot">2. Choose the “year” (OSM snapshot)</h4>
+<p>We work with historical OSM snapshots identified by version codes:</p>
+<p>“170101” → approx 2016–2017</p>
+<p>“240101” → approx 2023–2024</p>
+<p>Choose one snapshot to download:</p>
 <pre><code>source("R/00_setup.R")
 source("R/01_get_boundary.R")
 source("R/02_get_infrastructure.R")
 
 build_city_boundary()
-get_osm_infrastructure()</code></pre>
+
+# Download ONE snapshot:
+get_osm_infrastructure(version = "170101")   # older
+# get_osm_infrastructure(version = "240101") # newer</code></pre>
+<p>This saves a file like:</p>
+<pre><code>data/&lt;city_tag&gt;/&lt;city_tag&gt;_&lt;version&gt;_lines.gpkg
+</code></pre>
+</section>
+<section id="plot-the-network-for-that-snapshot" class="level4">
+<h4 class="anchored" data-anchor-id="plot-the-network-for-that-snapshot">3. Plot the network for that snapshot</h4>
+<pre><code>source("R/03_classify_network.R")
+source("R/04_city_maps.R")
+
+plot_city_map_tm(
+  version    = "170101",      # the snapshot you downloaded
+  city_name  = city_name,
+  year_label = "2016"         # only affects the title
+)</code></pre>
+<p>Use “240101” with a different year_label if you downloaded the newer snapshot.</p>
+</section>
+<section id="summary" class="level4">
+<h4 class="anchored" data-anchor-id="summary">Summary</h4>
+<ul>
+<li><p>Change city: update city_name, city_tag, city_boundary_place, and infra_region in R/00_setup.R.</p></li>
+<li><p>Change year: choose which snapshot to download (version = “170101” or “240101”).</p></li>
+<li><p>Plot: call plot_city_map_tm() with the same version and your preferred label.</p></li>
+</ul>
+<p>The rest of the workflow adapts automatically.</p>
+</section>
 </div>
 </div>
 </div>

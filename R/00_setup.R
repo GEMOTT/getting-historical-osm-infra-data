@@ -1,5 +1,5 @@
 ## R/00_setup.R
-## Global setup for ONE city: Montréal
+## Global setup for ONE city
 
 # Packages ---------------------------------------------------------------
 
@@ -15,22 +15,25 @@ pkgs <- c(
 
 invisible(lapply(pkgs, require, character.only = TRUE))
 
-# Options ---------------------------------------------------------------
+# Options ----------------------------------------------------------------
 
 options(sf_use_s2 = FALSE)
 
 # ----------------------------------------------------------------------
-# CITY SETTINGS: change these ONLY if you switch to another city later
+# CITY SETTINGS: change these when you switch to another city
 # ----------------------------------------------------------------------
 
 city_name           <- "Montréal"
 city_tag            <- "montréal"
-city_boundary_place <- "Montréal, Canada"            # for getbb()
+city_boundary_place <- "Montréal, Canada"   # used for the boundary (getbb / oe_get)
 
-# Geofabrik regions used by osmextract
-infra_region_2017 <- "Québec"   # 2017 = Quebec province
-infra_region_2024 <- "Québec"   # 2024 = whole Canada (old script behaviour)
+# Geofabrik (or other) region used by osmextract::oe_get()
+# This should be a region that fully contains your city
+infra_region <- "Québec"
 
+
+# OSM snapshot to use by default
+snapshot_version <- "170101"
 
 # ----------------------------------------------------------------------
 # Palette for Part 1 maps
@@ -44,10 +47,3 @@ pal_highway_aggr <- c(
 )
 
 # Tmap defaults ---------------------------------------------------------
-
-tmap::tmap_options(
-  frame        = FALSE,
-  legend.frame = FALSE,
-  bg.color     = NA
-)
-
