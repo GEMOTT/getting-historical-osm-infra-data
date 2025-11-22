@@ -234,22 +234,3 @@ build_cycling_network_osmactive <- function(version, city_tag) {
   
   invisible(out_path)
 }
-
-# -------------------------------------------------------------------
-# Example use (for README or qmd)
-# -------------------------------------------------------------------
-#
-# source("R/00_setup.R")
-# source("R/02_get_osm_infrastructure.R")
-# source("R/05_cycling_network.R")
-#
-# get_osm_infrastructure(version = snapshot_version)
-#
-# build_cycling_network(method = "osmextract", version = snapshot_version)
-# build_cycling_network(method = "osmactive",  version = snapshot_version)
-#
-# net_oe <- read_cycling_network("osmextract", version = snapshot_version)
-# net_oa <- read_cycling_network("osmactive",  version = snapshot_version)
-#
-# dplyr::count(net_oe, infra_simple)
-# dplyr::count(net_oa, infra_simple)

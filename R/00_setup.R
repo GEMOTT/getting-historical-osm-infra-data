@@ -35,15 +35,3 @@ infra_region <- "Québec"
 # OSM snapshot to use by default
 snapshot_version <- "170101"
 
-# ----------------------------------------------------------------------
-# Palette for Part 1 maps
-# ----------------------------------------------------------------------
-
-pal_highway_aggr <- c(
-  "cycleway"      = "#E41A1C",
-  "pedestrian"    = "#377EB8",
-  "living street" = "#4DAF4A",
-  "others"        = "grey"
-)
-
-# Tmap defaults ---------------------------------------------------------

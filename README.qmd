@@ -1,40 +1,88 @@
-## What this repository does
+# What this repository does
 
-We use historical OpenStreetMap (OSM) data to extract and classify street networks for a city.  
+This repository shows how to extract, classify, and map historical OpenStreetMap (OSM) street networks for a city.
 
-The workflow has two main parts:
+The workflow has two main components:  
+(1) classification of the **full street network**, and  
+(2) classification of the **cycling network** using two alternative methods.
 
-1. **Full street network classified by `highway` type**
+---
 
-   We download the full street network for the city and classify each link into four simple groups using only the OSM `highway` tag:
+## 1. Full street network (classified by highway type)
 
-   - **cycling**: `highway = cycleway`
-   - **pedestrian**: `highway = pedestrian`
-   - **living street**: `highway = living_street`
-   - **others**: all remaining `highway` types
+We first download the complete OSM street network for the selected city and snapshot using  
+`osmactive::get_travel_network()` (which internally relies on `osmextract::oe_get()`, but is fully handled by `osmactive`).
 
-   This gives a broad overview of the street network.  
-   At this stage we do not include on-road cycling lanes or tracks  
-   (for example `cycleway = lane` or `cycleway = track` on other road types).
+Each street segment is then assigned to one of four broad categories using only the value of the `highway` tag:
 
-2. **Cycling network by infrastructure type**
+- **cycling**: `highway = cycleway`  
+- **pedestrian**: `highway = pedestrian`  
+- **living street**: `highway = living_street`  
+- **others**: all remaining highway types
 
-   From the OSM data we then build a broader cycling network, where links are classified by type of cycling infrastructure  
-   (for example protected tracks, painted lanes, mixed traffic).
+This provides a simple, high-level overview of the street network.
 
-   We implement this in two alternative ways:
+At this stage we do **not** include on-road cycling infrastructure appearing on other road types  
+(e.g. `cycleway = lane`, `cycleway = track`, `bicycle = designated`).  
+These elements are classified later as part of the cycling network.
 
-   - **From scratch with `osmextract`**: custom filters based on `highway`, `cycleway*`, `bicycle*`, `segregated`, etc.  
-   - **Using `osmactive`**: a higher level interface that applies a built-in cycling filter.
+---
 
-The scripts are written so that you can run this workflow for **one city at a time** and for **one historical OSM snapshot at a time** by adjusting the settings in `R/00_setup.R` and the `version` argument in `R/02_get_infrastructure.R`.
+## 2. Cycling network (classified by infrastructure type)
 
-In this example, we get 2016 osm data for the city of **Montréal**, Canada.
+We next build a cycling-specific network from OSM, classifying links into a simplified scheme  
+stored in the variable `infra_simple`, which includes:
+
+- **protected_track**  
+- **painted_lane**  
+- **shared_footway**  
+- **off_road_path**
+
+We implement this using **two alternative methods**, allowing results to be compared.
+
+### a) Custom tag-based classification (using OSM tags)
+
+In the first method, we construct the cycling network and its categories directly from OSM tags.  
+We use explicit filtering and classification rules based on combinations of:
+
+- `highway`
+- `cycleway` (lane, track, sharrows, opposite lanes, etc.)
+- `bicycle` access
+- `segregated`
+- paths and footways with bicycle permissions
+
+These rules identify all links functioning as cycling infrastructure, which we then collapse into the four `infra_simple` classes.  
+This method is fully transparent and can be adapted to different local definitions of cycling infrastructure.
+
+### b) *osmactive*-based classification
+
+In the second method, we rely on the **osmactive** package’s internal cycling classification.  
+osmactive returns a more detailed set of infrastructure types for cycling links.  
+We then map these detailed osmactive classes onto the same four `infra_simple` categories used in the custom tag-based method.
+
+This provides a convenient, package-based classification that can be compared directly with our own tag-based scheme.
+
+---
+
+## Running the workflow
+
+The workflow runs **one city** and **one historical OSM snapshot** at a time.
+
+The repository consists of six R scripts:
+
+- `R/00_setup.R`            # city tag, city name, file paths, infra_region, snapshot_version  
+- `R/01_get_boundary.R`     # build city perimeter  
+- `R/02_get_infrastructure.R`  # download / load OSM travel network  
+- `R/03_full_network.R`     # classify full street network (highway groups)  
+- `R/04_cycling_network.R`  # build and classify cycling networks (two methods)  
+- `R/05_city_maps.R`         # plotting functions (full and cycling maps)
+
+In the example, we use the **2016** OSM snapshot for **Montréal, Canada**.
 
 ::: {.callout-tip collapse=true}
-## Changing city and year
+## How to change city and year
 
-#### 1. Change city (`R/00_setup.R`)
+#### 1. Set the city and default snapshot (`R/00_setup.R`)
 
 Edit these lines:
 
@@ -45,26 +93,29 @@ city_boundary_place <- "Montréal, Canada"
 
 # Region used by osmextract::oe_get() (must fully contain the city)
 infra_region <- "Québec"
+
+# Default historical OSM snapshot
+snapshot_version    <- "170101"   # e.g. ~2016
 ```
-To switch city, replace these four values with the new city information.
-Example for Paris:
+To switch city (and its default year), change these values. For example, for Paris around 2023:
 
 ```
 city_name           <- "Paris"
 city_tag            <- "paris"
 city_boundary_place <- "Paris, France"
 infra_region        <- "Ile-de-France"
+snapshot_version    <- "240101"   # e.g. ~2023
 ```
 
-#### 2. Choose the “year” (OSM snapshot)
+#### 2. Download or load the OSM network
 
-We work with historical OSM snapshots identified by version codes:
+We work with historical OSM snapshots identified by version codes, for example:
 
-"170101" → approx 2016–2017
+- "170101" → approx 2016
 
-"240101" → approx 2023–2024
+- "240101" → approx 2023
 
-Choose one snapshot to download:
+Run:
 
 ```
 source("R/00_setup.R")
@@ -73,39 +124,43 @@ source("R/02_get_infrastructure.R")
 
 build_city_boundary()
 
-# Download ONE snapshot:
-get_osm_infrastructure(version = "170101")   # older
-# get_osm_infrastructure(version = "240101") # newer
+# Download the network for the snapshot defined in snapshot_version:
+get_osm_infrastructure()
+# (you can override it if needed: get_osm_infrastructure(version = "170101"))
 ```
-This saves a file like:
+This creates:
 
 ```
 data/<city_tag>/<city_tag>_<version>_lines.gpkg
 
 ```
 
-#### 3. Plot the network for that snapshot
+You only need to download each city–version combination once.
+
+#### 3. Classify and plot the networks
 
 ```
-source("R/03_classify_network.R")
-source("R/04_city_maps.R")
+source("R/03_full_network.R")
+source("R/04_cycling_network.R")
+source("R/05_city_maps.R")
 
-plot_city_map_tm(
-  version    = "170101",      # the snapshot you downloaded
-  city_name  = city_name,
-  year_label = "2016"         # only affects the title
-)
+# Full street network (4 highway groups)
+plot_city_map_full_tm()
+
+# Cycling network (custom tag-based classification)
+plot_city_map_cycling_tag_tm()
+
+# Cycling network (osmactive-based classification)
+plot_city_map_cycling_osmactive_tm()
 ```
-
-Use "240101" with a different year_label if you downloaded the newer snapshot.
 
 #### Summary
 
-- Change city: update city_name, city_tag, city_boundary_place, and infra_region in R/00_setup.R.
+- **Change city and default year**: update `city_name`, `city_tag`, `city_boundary_place`, `infra_region`, and `snapshot_version` in `R/00_setup.R`.
 
-- Change year: choose which snapshot to download (version = "170101" or "240101").
+- **Download**: run `build_city_boundary()` and `get_osm_infrastructure()` once per city–snapshot.
 
-- Plot: call plot_city_map_tm() with the same version and your preferred label.
+- **Plot**: use `plot_city_map_full_tm()`, `plot_city_map_cycling_tag_tm()`, and `plot_city_map_cycling_osmactive_tm()`.
 
 The rest of the workflow adapts automatically.
 
@@ -116,9 +171,9 @@ The rest of the workflow adapts automatically.
 source("R/00_setup.R")
 source("R/01_get_boundary.R")
 source("R/02_get_infrastructure.R")
-source("R/03_classify_network.R")
+source("R/03_full_network.R")
 source("R/04_cycling_network.R")
-source("R/05_city_map.R")
+source("R/05_city_maps.R")
 ```
 
 ```{r}
@@ -131,13 +186,16 @@ build_cycling_network("osmactive")  # from 04
 
 ```{r}
 #| echo: false
+#| message: false
+#| warning: false
+#| paged-print: false
 # Full travel network by road type
-plot_city_map_tm(mode = "full", version = "170101")
+plot_city_map_full_tm()
 
 # Cycling infra – tag based method
-plot_city_map_tm(mode = "cycling_tag", version = "170101")
+plot_city_map_cycling_tag_tm()
 
 # Cycling infra – osmactive classification
-plot_city_map_tm(mode = "cycling_osmactive", version = "170101")
+plot_city_map_cycling_osmactive_tm()
 ```
 

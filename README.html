@@ -47,97 +47,162 @@ ul.task-list li input[type="checkbox"] {
 
 
 
-<section id="what-this-repository-does" class="level2">
-<h2 class="anchored" data-anchor-id="what-this-repository-does">What this repository does</h2>
-<p>We use historical OpenStreetMap (OSM) data to extract and classify street networks for a city.<br>
-Using <strong>Montréal</strong> as an example, the workflow has two main parts:</p>
-<ol type="1">
-<li><p><strong>Full street network classified by <code>highway</code> type</strong></p>
-<p>We download the full street network for the city and classify each link into four simple groups using only the OSM <code>highway</code> tag:</p>
+<section id="what-this-repository-does" class="level1">
+<h1>What this repository does</h1>
+<p>This repository shows how to extract, classify, and map historical OpenStreetMap (OSM) street networks for a city.</p>
+<p>The workflow has two main components:<br>
+(1) classification of the <strong>full street network</strong>, and<br>
+(2) classification of the <strong>cycling network</strong> using two alternative methods.</p>
+<hr>
+<section id="full-street-network-classified-by-highway-type" class="level2">
+<h2 class="anchored" data-anchor-id="full-street-network-classified-by-highway-type">1. Full street network (classified by highway type)</h2>
+<p>We first download the complete OSM street network for the selected city and snapshot using<br>
+<code>osmactive::get_travel_network()</code> (which internally relies on <code>osmextract::oe_get()</code>, but is fully handled by <code>osmactive</code>).</p>
+<p>Each street segment is then assigned to one of four broad categories using only the value of the <code>highway</code> tag:</p>
 <ul>
-<li><strong>cycling</strong>: <code>highway = cycleway</code></li>
-<li><strong>pedestrian</strong>: <code>highway = pedestrian</code></li>
-<li><strong>living street</strong>: <code>highway = living_street</code></li>
-<li><strong>others</strong>: all remaining <code>highway</code> types</li>
-</ul>
-<p>This gives a broad overview of the street network.<br>
-At this stage we do not include on-road cycling lanes or tracks<br>
-(for example <code>cycleway = lane</code> or <code>cycleway = track</code> on other road types).</p></li>
-<li><p><strong>Cycling network by infrastructure type</strong></p>
-<p>From the OSM data we then build a broader cycling network, where links are classified by type of cycling infrastructure<br>
-(for example protected tracks, painted lanes, mixed traffic).</p>
-<p>We implement this in two alternative ways:</p>
-<ul>
-<li><strong>From scratch with <code>osmextract</code></strong>: custom filters based on <code>highway</code>, <code>cycleway*</code>, <code>bicycle*</code>, <code>segregated</code>, etc.<br>
+<li><strong>cycling</strong>: <code>highway = cycleway</code><br>
 </li>
-<li><strong>Using <code>osmactive</code></strong>: a higher level interface that applies a built-in cycling filter.</li>
-</ul></li>
-</ol>
-<p>The scripts are written so that you can run this workflow for <strong>one city at a time</strong> and for <strong>one historical OSM snapshot at a time</strong> by adjusting the settings in <code>R/00_setup.R</code> and the <code>version</code> argument in <code>R/02_get_infrastructure.R</code>.</p>
+<li><strong>pedestrian</strong>: <code>highway = pedestrian</code><br>
+</li>
+<li><strong>living street</strong>: <code>highway = living_street</code><br>
+</li>
+<li><strong>others</strong>: all remaining highway types</li>
+</ul>
+<p>This provides a simple, high-level overview of the street network.</p>
+<p>At this stage we do <strong>not</strong> include on-road cycling infrastructure appearing on other road types<br>
+(e.g.&nbsp;<code>cycleway = lane</code>, <code>cycleway = track</code>, <code>bicycle = designated</code>).<br>
+These elements are classified later as part of the cycling network.</p>
+<hr>
+</section>
+<section id="cycling-network-classified-by-infrastructure-type" class="level2">
+<h2 class="anchored" data-anchor-id="cycling-network-classified-by-infrastructure-type">2. Cycling network (classified by infrastructure type)</h2>
+<p>We next build a cycling-specific network from OSM, classifying links into a simplified scheme<br>
+stored in the variable <code>infra_simple</code>, which includes:</p>
+<ul>
+<li><strong>protected_track</strong><br>
+</li>
+<li><strong>painted_lane</strong><br>
+</li>
+<li><strong>shared_footway</strong><br>
+</li>
+<li><strong>off_road_path</strong></li>
+</ul>
+<p>We implement this using <strong>two alternative methods</strong>, allowing results to be compared.</p>
+<section id="a-custom-tag-based-classification-using-osm-tags" class="level3">
+<h3 class="anchored" data-anchor-id="a-custom-tag-based-classification-using-osm-tags">a) Custom tag-based classification (using OSM tags)</h3>
+<p>In the first method, we construct the cycling network and its categories directly from OSM tags.<br>
+We use explicit filtering and classification rules based on combinations of:</p>
+<ul>
+<li><code>highway</code></li>
+<li><code>cycleway</code> (lane, track, sharrows, opposite lanes, etc.)</li>
+<li><code>bicycle</code> access</li>
+<li><code>segregated</code></li>
+<li>paths and footways with bicycle permissions</li>
+</ul>
+<p>These rules identify all links functioning as cycling infrastructure, which we then collapse into the four <code>infra_simple</code> classes.<br>
+This method is fully transparent and can be adapted to different local definitions of cycling infrastructure.</p>
+</section>
+<section id="b-osmactive-based-classification" class="level3">
+<h3 class="anchored" data-anchor-id="b-osmactive-based-classification">b) <em>osmactive</em>-based classification</h3>
+<p>In the second method, we rely on the <strong>osmactive</strong> package’s internal cycling classification.<br>
+osmactive returns a more detailed set of infrastructure types for cycling links.<br>
+We then map these detailed osmactive classes onto the same four <code>infra_simple</code> categories used in the custom tag-based method.</p>
+<p>This provides a convenient, package-based classification that can be compared directly with our own tag-based scheme.</p>
+<hr>
+</section>
+</section>
+<section id="running-the-workflow" class="level2">
+<h2 class="anchored" data-anchor-id="running-the-workflow">Running the workflow</h2>
+<p>The workflow runs <strong>one city</strong> and <strong>one historical OSM snapshot</strong> at a time.</p>
+<p>The repository consists of six R scripts:</p>
+<ul>
+<li><code>R/00_setup.R</code> # city tag, city name, file paths, infra_region, snapshot_version<br>
+</li>
+<li><code>R/01_get_boundary.R</code> # build city perimeter<br>
+</li>
+<li><code>R/02_get_infrastructure.R</code> # download / load OSM travel network<br>
+</li>
+<li><code>R/03_full_network.R</code> # classify full street network (highway groups)<br>
+</li>
+<li><code>R/04_cycling_network.R</code> # build and classify cycling networks (two methods)<br>
+</li>
+<li><code>R/05_city_maps.R</code> # plotting functions (full and cycling maps)</li>
+</ul>
+<p>In the example, we use the <strong>2016</strong> OSM snapshot for <strong>Montréal, Canada</strong>.</p>
 <div class="callout callout-style-default callout-tip callout-titled">
 <div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-1-contents" aria-controls="callout-1" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
 <div class="callout-title-container flex-fill">
-Changing city and year
+How to change city and year
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
 <div id="callout-1" class="callout-1-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<section id="change-city-r00_setup.r" class="level4">
-<h4 class="anchored" data-anchor-id="change-city-r00_setup.r">1. Change city (<code>R/00_setup.R</code>)</h4>
+<section id="set-the-city-and-default-snapshot-r00_setup.r" class="level4">
+<h4 class="anchored" data-anchor-id="set-the-city-and-default-snapshot-r00_setup.r">1. Set the city and default snapshot (<code>R/00_setup.R</code>)</h4>
 <p>Edit these lines:</p>
 <pre><code>city_name           &lt;- "Montréal"
 city_tag            &lt;- "montréal"
 city_boundary_place &lt;- "Montréal, Canada"
 
 # Region used by osmextract::oe_get() (must fully contain the city)
-infra_region &lt;- "Québec"</code></pre>
-<p>To switch city, replace these four values with the new city information. Example for Paris:</p>
+infra_region &lt;- "Québec"
+
+# Default historical OSM snapshot
+snapshot_version    &lt;- "170101"   # e.g. ~2016</code></pre>
+<p>To switch city (and its default year), change these values. For example, for Paris around 2023:</p>
 <pre><code>city_name           &lt;- "Paris"
 city_tag            &lt;- "paris"
 city_boundary_place &lt;- "Paris, France"
-infra_region        &lt;- "Ile-de-France"</code></pre>
+infra_region        &lt;- "Ile-de-France"
+snapshot_version    &lt;- "240101"   # e.g. ~2023</code></pre>
 </section>
-<section id="choose-the-year-osm-snapshot" class="level4">
-<h4 class="anchored" data-anchor-id="choose-the-year-osm-snapshot">2. Choose the “year” (OSM snapshot)</h4>
-<p>We work with historical OSM snapshots identified by version codes:</p>
-<p>“170101” → approx 2016–2017</p>
-<p>“240101” → approx 2023–2024</p>
-<p>Choose one snapshot to download:</p>
+<section id="download-or-load-the-osm-network" class="level4">
+<h4 class="anchored" data-anchor-id="download-or-load-the-osm-network">2. Download or load the OSM network</h4>
+<p>We work with historical OSM snapshots identified by version codes, for example:</p>
+<ul>
+<li><p>“170101” → approx 2016</p></li>
+<li><p>“240101” → approx 2023</p></li>
+</ul>
+<p>Run:</p>
 <pre><code>source("R/00_setup.R")
 source("R/01_get_boundary.R")
 source("R/02_get_infrastructure.R")
 
 build_city_boundary()
 
-# Download ONE snapshot:
-get_osm_infrastructure(version = "170101")   # older
-# get_osm_infrastructure(version = "240101") # newer</code></pre>
-<p>This saves a file like:</p>
+# Download the network for the snapshot defined in snapshot_version:
+get_osm_infrastructure()
+# (you can override it if needed: get_osm_infrastructure(version = "170101"))</code></pre>
+<p>This creates:</p>
 <pre><code>data/&lt;city_tag&gt;/&lt;city_tag&gt;_&lt;version&gt;_lines.gpkg
 </code></pre>
+<p>You only need to download each city–version combination once.</p>
 </section>
-<section id="plot-the-network-for-that-snapshot" class="level4">
-<h4 class="anchored" data-anchor-id="plot-the-network-for-that-snapshot">3. Plot the network for that snapshot</h4>
-<pre><code>source("R/03_classify_network.R")
-source("R/04_city_maps.R")
+<section id="classify-and-plot-the-networks" class="level4">
+<h4 class="anchored" data-anchor-id="classify-and-plot-the-networks">3. Classify and plot the networks</h4>
+<pre><code>source("R/03_full_network.R")
+source("R/04_cycling_network.R")
+source("R/05_city_maps.R")
 
-plot_city_map_tm(
-  version    = "170101",      # the snapshot you downloaded
-  city_name  = city_name,
-  year_label = "2016"         # only affects the title
-)</code></pre>
-<p>Use “240101” with a different year_label if you downloaded the newer snapshot.</p>
+# Full street network (4 highway groups)
+plot_city_map_full_tm()
+
+# Cycling network (custom tag-based classification)
+plot_city_map_cycling_tag_tm()
+
+# Cycling network (osmactive-based classification)
+plot_city_map_cycling_osmactive_tm()</code></pre>
 </section>
 <section id="summary" class="level4">
 <h4 class="anchored" data-anchor-id="summary">Summary</h4>
 <ul>
-<li><p>Change city: update city_name, city_tag, city_boundary_place, and infra_region in R/00_setup.R.</p></li>
-<li><p>Change year: choose which snapshot to download (version = “170101” or “240101”).</p></li>
-<li><p>Plot: call plot_city_map_tm() with the same version and your preferred label.</p></li>
+<li><p><strong>Change city and default year</strong>: update <code>city_name</code>, <code>city_tag</code>, <code>city_boundary_place</code>, <code>infra_region</code>, and <code>snapshot_version</code> in <code>R/00_setup.R</code>.</p></li>
+<li><p><strong>Download</strong>: run <code>build_city_boundary()</code> and <code>get_osm_infrastructure()</code> once per city–snapshot.</p></li>
+<li><p><strong>Plot</strong>: use <code>plot_city_map_full_tm()</code>, <code>plot_city_map_cycling_tag_tm()</code>, and <code>plot_city_map_cycling_osmactive_tm()</code>.</p></li>
 </ul>
 <p>The rest of the workflow adapts automatically.</p>
 </section>
@@ -148,11 +213,26 @@ plot_city_map_tm(
 <div class="cell-output-display">
 <div>
 <figure class="figure">
-<p><img src="README_files/figure-html/map-panels-1.png" class="img-fluid figure-img" width="672"></p>
+<p><img src="README_files/figure-html/unnamed-chunk-3-1.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="README_files/figure-html/unnamed-chunk-3-2.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="README_files/figure-html/unnamed-chunk-3-3.png" class="img-fluid figure-img" width="672"></p>
 </figure>
 </div>
 </div>
 </div>
+</section>
 </section>
 
 </main>
