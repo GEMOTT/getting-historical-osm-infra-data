@@ -122,12 +122,22 @@ source("R/05_city_map.R")
 ```
 
 ```{r}
-#| eval: false
 #| include: false
-build_city_boundary()       # from 01
-get_osm_infrastructure()    # from 02
-build_cycling_network("osmextract")
-build_cycling_network("osmactive")
-plot_city_map_tm()
+build_city_boundary()               # from 01
+get_osm_infrastructure()            # from 02
+build_cycling_network("osmextract") # from 04
+build_cycling_network("osmactive")  # from 04
+```
+
+```{r}
+#| echo: false
+# Full travel network by road type
+plot_city_map_tm(mode = "full", version = "170101")
+
+# Cycling infra – tag based method
+plot_city_map_tm(mode = "cycling_tag", version = "170101")
+
+# Cycling infra – osmactive classification
+plot_city_map_tm(mode = "cycling_osmactive", version = "170101")
 ```
 
