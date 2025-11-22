@@ -1,7 +1,7 @@
 # Getting historical OSM infrastructure data
 
 
-# What this repository does
+## What this repository does
 
 This repository shows how to extract, classify, and map historical
 OpenStreetMap (OSM) street networks for a city.
@@ -13,7 +13,7 @@ methods.
 
 ------------------------------------------------------------------------
 
-## 1. Full street network (classified by highway type)
+### 1. Full street network (classified by highway type)
 
 We first download the complete OSM street network for the selected city
 and snapshot using  
@@ -37,7 +37,7 @@ These elements are classified later as part of the cycling network.
 
 ------------------------------------------------------------------------
 
-## 2. Cycling network (classified by infrastructure type)
+### 2. Cycling network (classified by infrastructure type)
 
 We next build a cycling-specific network from OSM, classifying links
 into a simplified scheme  
@@ -51,7 +51,7 @@ stored in the variable `infra_simple`, which includes:
 We implement this using **two alternative methods**, allowing results to
 be compared.
 
-### a) Custom tag-based classification (using OSM tags)
+#### a) Custom tag-based classification (using OSM tags)
 
 In the first method, we construct the cycling network and its categories
 directly from OSM tags.  
@@ -69,7 +69,7 @@ which we then collapse into the four `infra_simple` classes.
 This method is fully transparent and can be adapted to different local
 definitions of cycling infrastructure.
 
-### b) *osmactive*-based classification
+#### b) *osmactive*-based classification
 
 In the second method, we rely on the **osmactive** package’s internal
 cycling classification.  
@@ -83,7 +83,7 @@ compared directly with our own tag-based scheme.
 
 ------------------------------------------------------------------------
 
-## Running the workflow
+### Running the workflow
 
 The workflow runs **one city** and **one historical OSM snapshot** at a
 time.
@@ -107,7 +107,7 @@ Canada**.
 >
 > ### How to change city and year
 >
-> #### 1. Set the city and default snapshot (`R/00_setup.R`)
+> ##### 1. Set the city and default snapshot (`R/00_setup.R`)
 >
 > Edit these lines:
 >
@@ -130,7 +130,7 @@ Canada**.
 >     infra_region        <- "Ile-de-France"
 >     snapshot_version    <- "240101"   # e.g. ~2023
 >
-> #### 2. Download or load the OSM network
+> ##### 2. Download or load the OSM network
 >
 > We work with historical OSM snapshots identified by version codes, for
 > example:
@@ -157,7 +157,7 @@ Canada**.
 >
 > You only need to download each city–version combination once.
 >
-> #### 3. Classify and plot the networks
+> ##### 3. Classify and plot the networks
 >
 >     source("R/03_full_network.R")
 >     source("R/04_cycling_network.R")
@@ -172,7 +172,7 @@ Canada**.
 >     # Cycling network (osmactive-based classification)
 >     plot_city_map_cycling_osmactive_tm()
 >
-> #### Summary
+> ##### Summary
 >
 > - **Change city and default year**: update `city_name`, `city_tag`,
 >   `city_boundary_place`, `infra_region`, and `snapshot_version` in
@@ -192,3 +192,21 @@ Canada**.
 ![](README_files/figure-commonmark/unnamed-chunk-3-2.png)
 
 ![](README_files/figure-commonmark/unnamed-chunk-3-3.png)
+
+### Licence
+
+This repository is released under the GNU General Public License v3.0
+(GPL-3.0).  
+You are free to use, modify, and redistribute the code, as long as any
+derivative works remain open source under the same licence and include
+appropriate attribution.
+
+If you use this repository in academic work, please cite it (see below).
+
+### How to cite
+
+If you use this repository, please cite the following:
+
+Vidal-Tortosa, E. (2025). Getting historical OSM infrastructure data.  
+GitHub repository.
+https://github.com/GEMOTT/getting-historical-osm-infra-data
