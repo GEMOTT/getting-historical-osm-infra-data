@@ -192,21 +192,3 @@ Canada**.
 ![](README_files/figure-commonmark/unnamed-chunk-3-2.png)
 
 ![](README_files/figure-commonmark/unnamed-chunk-3-3.png)
-
-### Licence
-
-This repository is released under the GNU General Public License v3.0
-(GPL-3.0).  
-You are free to use, modify, and redistribute the code, as long as any
-derivative works remain open source under the same licence and include
-appropriate attribution.
-
-If you use this repository in academic work, please cite it (see below).
-
-### How to cite
-
-If you use this repository, please cite the following:
-
-Vidal-Tortosa, E. (2025). Getting historical OSM infrastructure data.  
-GitHub repository.
-https://github.com/GEMOTT/getting-historical-osm-infra-data
