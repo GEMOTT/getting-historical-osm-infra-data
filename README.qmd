@@ -1,292 +1,82 @@
----
-title: "Getting historical OSM infrastruture data"
-format: gfm
-editor: visual
----
+## What this repository does
 
-```{r include=FALSE}
-#remotes::install_github("ropensci/osmextract")
-library(osmdata)
-library(osmextract)
-library(sf)
-library(tidyverse)
-library(tmap)
-library(grid)
-library(gridExtra)
-library(spdep)
+We use historical OpenStreetMap (OSM) data to extract and classify street networks for a city.  
+Using **Montréal** as an example, the workflow has two main parts:
+
+1. **Full street network classified by `highway` type**
+
+   We download the **full street network** for the city and classify each link into four simple groups using only the OSM `highway` tag:
+
+   - **cycling**: `highway = cycleway`
+   - **pedestrian**: `highway = pedestrian`
+   - **living street**: `highway = living_street`
+   - **others**: all remaining `highway` types
+
+   This gives a broad overview of the street network.  
+   At this stage we do not include on-road cycling lanes or tracks  
+   (for example `cycleway = lane` or `cycleway = track` on other road types).
+
+2. **Cycling network by infrastructure type**
+
+   From the OSM data we then build a **broader cycling network**, where links are classified by type of cycling infrastructure  
+   (for example protected tracks, painted lanes, mixed traffic).
+
+   We implement this in two alternative ways:
+
+   - **From scratch with `osmextract`**: custom filters based on `highway`, `cycleway*`, `bicycle*`, `segregated`, etc.  
+   - **Using `osmactive`**: a higher level interface that applies a built-in cycling filter.
+
+The scripts are written so that you can run this workflow for **one city at a time** by adjusting the city settings in `R/00_setup.R`.
+
+::: {.callout-tip collapse=true}
+## Changing city
+
+To switch city:
+
+1. Set the city in `R/00_setup.R`.  
+   For example, for **Paris**:
+
+ ```
+ city_name           <- "Paris"
+ city_tag            <- "paris"
+ city_boundary_place <- "Paris, France"
+
+ infra_region_2017 <- "Ile-de-France"  # Geofabrik region for 170101
+ infra_region_2024 <- "Ile-de-France"  # This region may change by year 
 ```
 
-```{r boundaries}
-#| include: false
-# Get the boundary data for each city at the city, neighbourhood and census section levels  
+2. Then, in a fresh R session, run:
 
-# Define the cities with their English names
-cities <- list(
-  "Barcelona" = "Barcelona, Spain",
-  "Montréal" = "Montréal, Canada",
-  "Milan" = "Milano, Italy",
-  "Paris" = "Paris, France"
-)
-
-# Create the data directory if it doesn't exist
-if (!dir.exists("data/")) {
-  dir.create("data/")
-}
-
-for (english_name in names(cities)) {
-  city <- cities[[english_name]]
-  try({
-    # Get the bounding box
-    bbox <- getbb(city, format_out = "polygon")
-    if (is.null(bbox)) {
-      warning(paste("Bounding box for", city, "not found"))
-      next
-    }
-    
-    # Query for the city's boundary with admin_level 8
-    city_boundary <- opq(bbox = bbox) |>
-      add_osm_feature(key = "boundary", value = "administrative") |>
-      add_osm_feature(key = "name", value = gsub(",.*", "", city), value_exact = FALSE) |>
-      add_osm_feature(key = "admin_level", value = "8") |>
-      osmdata_sf()
-    
-    if (is.null(city_boundary$osm_multipolygons)) {
-      warning(paste("Boundary for", city, "not found. Query returned no results."))
-      next
-    }
-    
-    city_perimeter <- city_boundary$osm_multipolygons
-    
-    # Ensure only one observation
-    city_perimeter <- city_perimeter[1, ]
-    
-    # Convert to MULTIPOLYGON if necessary
-    city_perimeter <- st_cast(city_perimeter, "MULTIPOLYGON")
-    
-    # Check and fix invalid geometries
-    if (!all(st_is_valid(city_perimeter))) {
-      city_perimeter <- st_make_valid(city_perimeter)
-    }
-    
-    # Create city-specific directory if it doesn't exist
-    city_dir <- paste0("data/", tolower(english_name))
-    if (!dir.exists(city_dir)) {
-      dir.create(city_dir)
-    }
-    
-    # Write to GeoPackage (overwrite if exists) using the English name
-    st_write(city_perimeter, paste0(city_dir, "/", tolower(english_name), "_perimeter.gpkg"), layer = english_name, driver = "GPKG", append = FALSE)
-    
-    message(paste("Successfully wrote perimeter for", english_name))
-  }, silent = FALSE)
-}
-
-# Test boundaries
-# # Function to read and plot a city's boundary using tmap
-# plot_city_boundary_tmap <- function(city_name) {
-#   file_path <- paste0("data/", tolower(city_name), "/", tolower(city_name), "_perimeter.gpkg")
-#   
-#   if (!file.exists(file_path)) {
-#     warning(paste("File not found for", city_name))
-#     return(NULL)
-#   }
-#   
-#   city_boundary <- st_read(file_path)
-#   
-#   # Plot with tmap
-#   tm_shape(city_boundary) +
-#     tm_borders(col = "blue") +
-#     tm_fill(col = "lightblue", alpha = 0.5) +
-#     tm_layout(main.title = paste("Boundary of", city_name))
-# }
-# 
-# # Test with a single city (replace "Barcelona" with any other city)
-# plot_city_boundary_tmap("Barcelona")
 ```
+source("R/00_setup.R")
+source("R/01_get_boundary.R")
+source("R/02_get_infrastructure.R")
 
-```{r infras}
+build_city_boundary()
+get_osm_infrastructure()
+```
+:::
+
+```{r}
 #| include: false
-# Get the OSM infrastructture data
-# Define vectortranslate options
-my_vectortranslate <- c(
-  "-select", "osm_id,highway", 
-  "-where", "highway IN ('living_street', 'pedestrian', 'cycleway', 'motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'unclassified', 'residential', 'motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link', 'service', 'track', 'bus_guideway', 'escape', 'raceway', 'busway')"
-)
-
-# Define a list of cities with their corresponding region and subregion
-cities <- list(
-  "Barcelona" = c("Barcelona", "Cataluña", "Spain"),
-  "Montréal"  = c("Montréal", "Québec",   "Canada"),
-  "Milan"     = c("Milan",    "Nord-Ovest","Milan"),
-  "Paris"     = c("Paris",    "Ile-de-France", "Paris")
-)
-
-for (english_name in names(cities)) {
-  city_info <- cities[[english_name]]
-  city      <- city_info[1]
-  region    <- city_info[2]
-  subregion <- city_info[3]
-  
-  try({
-    # Define file path for the perimeter
-    perimeter_path <- paste0("data/", tolower(english_name), "/", tolower(english_name), "_perimeter.gpkg")
-    
-    # Read the perimeter from GeoPackage
-    if (file.exists(perimeter_path)) {
-      city_perimeter <- st_read(perimeter_path, layer = tolower(english_name))
-      # Ensure CRS is WGS84
-      if (st_crs(city_perimeter) != 4326) {
-        message(paste("Transforming CRS for", english_name, "to WGS 84"))
-        city_perimeter <- st_transform(city_perimeter, 4326)
-      }
-    } else {
-      warning(paste("Perimeter file for", english_name, "not found"))
-      next
-    }
-    
-    # Create city-specific directory if it doesn't exist
-    city_dir <- paste0("data/", tolower(english_name))
-    if (!dir.exists(city_dir)) dir.create(city_dir, recursive = TRUE)
-
-    # Helper: fetch + crop; SKIPS if output already exists
-    fetch_and_crop_data <- function(area, version, perimeter, output_file) {
-      if (file.exists(output_file)) {
-        message("↪ Skipping (exists): ", basename(output_file))
-        return(invisible(NULL))
-      }
-
-      # SPECIAL CASE: Barcelona 2017 -> use 'spain' and avoid vectortranslate filter
-      force_spain_2017 <- (english_name == "Barcelona" && version == "170101")
-
-      lines_data <- tryCatch({
-        if (force_spain_2017) {
-          # Fast pre-clip by bbox; read lines with highway tag present
-          oe_get("spain",
-                 version = version,
-                 boundary = st_bbox(perimeter), boundary_type = "clipsrc",
-                 layer = "lines", extra_tags = "highway",
-                 quiet = FALSE)
-        } else {
-          # Your original call (keep vectortranslate filter)
-          oe_get(area,
-                 version = version,
-                 vectortranslate_options = my_vectortranslate,
-                 quiet = FALSE)
-        }
-      }, error = function(e) {
-        message(paste("Error fetching", version, "lines for", english_name, ":", e$message))
-        return(NULL)
-      })
-      
-      if (!is.null(lines_data) && nrow(lines_data) > 0) {
-        # Keep only (multi)lines and clip to polygon
-        lines_data <- lines_data[
-          sf::st_geometry_type(lines_data$geometry) %in% c("LINESTRING","MULTILINESTRING"), ]
-        if (nrow(lines_data) == 0) {
-          message(paste("No LINESTRINGs for", english_name, "(", version, ")"))
-          return(invisible(NULL))
-        }
-
-        # Final clip to the city polygon
-        lines_data <- sf::st_intersection(lines_data, perimeter)
-
-        if (nrow(lines_data) > 0) {
-          sf::st_write(lines_data, output_file,
-                       layer = gsub("\\.gpkg$", "", basename(output_file)),
-                       driver = "GPKG", append = FALSE)
-          message(paste("✓ Saved", basename(output_file), "(", nrow(lines_data), "features )"))
-        } else {
-          message(paste("No lines remaining after clipping for", english_name, "(", version, ")"))
-        }
-      } else {
-        message(paste("No data found for", english_name, "(", version, ")"))
-      }
-    }
-
-    # Fetch and crop 170101 (2017) — Barcelona uses 'spain' internally
-    fetch_and_crop_data(region,   "170101", city_perimeter,
-                        paste0(city_dir, "/", tolower(english_name), "_170101_lines.gpkg"))
-
-    # Fetch and crop 240101 (2024)
-    fetch_and_crop_data(subregion,"240101", city_perimeter,
-                        paste0(city_dir, "/", tolower(english_name), "_240101_lines.gpkg"))
-
-    message(paste("Done:", english_name))
-  }, silent = FALSE)
-}
+source("R/00_setup.R")
+source("R/01_get_boundary.R")
+source("R/02_get_infrastructure.R")
+source("R/03_classify_network.R")
+source("R/04_city_map.R")
 ```
 
 ```{r}
+#| eval: false
+#| include: false
+build_city_boundary()       # from 01
+get_osm_infrastructure()    # from 02
+```
+
+```{r}
+#| label: map-panels
 #| echo: false
 #| message: false
 #| warning: false
-#| paged-print: false
-# --- cities to plot (match your folder names under data/) ---
-city_tags <- c("barcelona", "montréal", "milan", "paris")  # add/remove as needed
-versions  <- c("170101","240101")  # 2017 & 2024
-
-# --- palette & helpers ---
-pal <- c("cycleway"="#E41A1C","pedestrian"="#377EB8","living street"="#4DAF4A","others"="grey")
-
-read_perimeter <- function(tag){
-  perim_path <- file.path("data", tag, paste0(tag, "_perimeter.gpkg"))
-  if (!file.exists(perim_path)) return(NULL)
-  # read (single-layer gpkg) and ensure WGS84
-  st_read(perim_path, quiet = TRUE) |> st_transform(4326)
-}
-
-read_infra <- function(tag, ver){
-  gpkg <- file.path("data", tag, paste0(tag, "_", ver, "_lines.gpkg"))
-  lyr  <- paste0(tag, "_", ver, "_lines")
-  if (!file.exists(gpkg)) return(NULL)
-  x <- tryCatch(st_read(gpkg, layer = lyr, quiet = TRUE), error = function(e) NULL)
-  x
-}
-
-mk_aggr <- function(x, perimeter){
-  if (is.null(x) || nrow(x) == 0) return(NULL)
-  x <- st_transform(x, st_crs(perimeter))
-  if (!"highway_aggr" %in% names(x)) {
-    x <- x |>
-      mutate(highway_aggr = dplyr::case_when(
-        highway == "cycleway"      ~ "cycleway",
-        highway == "pedestrian"    ~ "pedestrian",
-        highway == "living_street" ~ "living street",
-        TRUE ~ "others"
-      ))
-  }
-  x
-}
-
-mk_map <- function(perimeter, x, title){
-  if (is.null(x) || nrow(x) == 0) {
-    return(tm_shape(perimeter) + tm_borders() + tm_title(paste0(title, " (no data)")))
-  }
-  tm_shape(perimeter) + tm_borders() +
-    tm_shape(x) +
-    tm_lines(col = "highway_aggr", lwd = 0.5, col_alpha = 0.6,
-             col.scale = tm_scale(values = pal)) +
-    tm_title(title)
-}
-
-make_city_panel <- function(city_tag){
-  perim <- read_perimeter(city_tag)
-  if (is.null(perim)) return(NULL)
-
-  x17 <- mk_aggr(read_infra(city_tag, "170101"), perim)
-  x24 <- mk_aggr(read_infra(city_tag, "240101"), perim)
-
-  m17 <- mk_map(perim, x17, "2016")
-  m24 <- mk_map(perim, x24, "2023")
-  tmap_arrange(m17, m24, nrow = 1)
-}
-
-# --- OPTION A: display all city panels in the notebook ---
-tmap_mode("plot")
-panels <- lapply(city_tags, make_city_panel)
-# print each panel (skip NULLs)
-invisible(lapply(panels[!sapply(panels, is.null)], print))
+plot_city_panel()
 ```
-
-
-
